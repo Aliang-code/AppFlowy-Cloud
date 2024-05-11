@@ -1,5 +1,5 @@
 # Essential services for AppFlowy Cloud
-env_file: .env
+
 version: '3'
 services:
   nginx:
