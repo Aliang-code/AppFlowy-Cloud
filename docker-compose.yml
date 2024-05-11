@@ -6,8 +6,8 @@ services:
     restart: on-failure
     image: nginx
     ports:
-      - 80:80   # Disable this if you are using TLS
-      - 443:443
+      - 49090:49090   # Disable this if you are using TLS
+      #- 443:443
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
       - ./nginx/ssl/certificate.crt:/etc/nginx/ssl/certificate.crt
