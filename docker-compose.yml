@@ -1,5 +1,5 @@
 # Essential services for AppFlowy Cloud
-
+env_file: .env
 version: '3'
 services:
   nginx:
@@ -155,5 +155,5 @@ services:
       - APPFLOWY_HISTORY_DATABASE_URL=${APPFLOWY_HISTORY_DATABASE_URL}
 
 volumes:
-  postgres_data:
-  minio_data:
+  postgres_data: /data/postgres
+  minio_data: /data/minio
