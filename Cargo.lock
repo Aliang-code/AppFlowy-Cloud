@@ -522,13 +522,14 @@ dependencies = [
 [[package]]
 name = "appflowy-ai-client"
 version = "0.1.0"
-source = "git+https://github.com/AppFlowy-IO/AppFlowy-AI?tag=0.0.7#115f185e15f895abf750415584248689b9ff8ea2"
 dependencies = [
  "anyhow",
  "reqwest 0.12.4",
  "serde",
  "serde_json",
+ "serde_repr",
  "thiserror",
+ "tokio",
  "tracing",
 ]
 
@@ -558,7 +559,7 @@ dependencies = [
  "bytes",
  "chrono",
  "client-api",
- "client-api-test-util",
+ "client-api-test",
  "collab",
  "collab-document",
  "collab-entity",
@@ -1505,7 +1506,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "client-api-test-util"
+name = "client-api-test"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -6136,9 +6137,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.36.0"
+version = "1.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61285f6515fa018fb2d1e46eb21223fff441ee8db5d0f1435e8ab4f5cdb80931"
+checksum = "1adbebffeca75fcfd058afa480fb6c0b81e165a0323f9c9d39c9697e37c46787"
 dependencies = [
  "backtrace",
  "bytes",
@@ -6896,7 +6897,7 @@ name = "wasm-test"
 version = "0.1.0"
 dependencies = [
  "client-api",
- "client-api-test-util",
+ "client-api-test",
  "tokio",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
