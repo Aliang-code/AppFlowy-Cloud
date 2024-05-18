@@ -52,10 +52,11 @@ impl Mailer {
     let email = Message::builder()
       .from(lettre::message::Mailbox::new(
         Some("AppFlowy Notify".to_string()),
-        lettre::Address::new("notify", "appflowy.io")?,
+        param.username.parse::lettre::<Address>()?
+        #lettre::Address::new("notify", "appflowy.io")?,
       ))
       .to(lettre::message::Mailbox::new(
-        Some(param.username.clone()),
+        Some(email.clone()),
         email.parse().unwrap(),
       ))
       .subject(format!(
