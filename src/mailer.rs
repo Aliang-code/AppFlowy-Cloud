@@ -36,7 +36,7 @@ impl Mailer {
       .register_template_string("workspace_invite", workspace_invite_template)
       .unwrap();
 
-    Ok(Self { smtp_transport })
+    Ok(Self { smtp_username,smtp_transport })
   }
 
   pub async fn send_workspace_invite(
@@ -52,7 +52,7 @@ impl Mailer {
     let email = Message::builder()
       .from(lettre::message::Mailbox::new(
         Some("AppFlowy Notify".to_string()),
-        param.username.parse::lettre::<Address>()?
+        &self.smtp_username.parse::lettre::<Address>()?
         #lettre::Address::new("notify", "appflowy.io")?,
       ))
       .to(lettre::message::Mailbox::new(
