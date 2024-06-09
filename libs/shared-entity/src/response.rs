@@ -3,6 +3,7 @@ use std::borrow::Cow;
 
 use app_error::AppError;
 pub use app_error::ErrorCode;
+use serde::de::DeserializeOwned;
 use std::fmt::{Debug, Display};
 
 #[cfg(feature = "cloud")]
@@ -128,7 +129,7 @@ where
 
 impl<T> AppResponse<T>
 where
-  T: serde::de::DeserializeOwned + 'static,
+  T: DeserializeOwned + 'static,
 {
   pub async fn from_response(resp: reqwest::Response) -> Result<Self, anyhow::Error> {
     let status_code = resp.status();
@@ -142,6 +143,7 @@ where
     Ok(resp)
   }
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize, thiserror::Error)]
 pub struct AppResponseError {
   #[serde(deserialize_with = "default_error_code")]

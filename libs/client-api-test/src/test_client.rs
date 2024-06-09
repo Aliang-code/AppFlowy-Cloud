@@ -6,6 +6,7 @@ use assert_json_diff::{
 use bytes::Bytes;
 #[cfg(feature = "collab-sync")]
 use client_api::collab_sync::{SinkConfig, SyncObject, SyncPlugin};
+use client_api::entity::QueryWorkspaceMember;
 use client_api::ws::{WSClient, WSClientConfig};
 use collab::core::collab::{DataSource, MutexCollab};
 use collab::core::collab_state::SyncState;
@@ -257,11 +258,33 @@ impl TestClient {
       .await
       .unwrap()
   }
+
   pub async fn try_get_workspace_members(
     &self,
     workspace_id: &str,
   ) -> Result<Vec<AFWorkspaceMember>, AppResponseError> {
     self.api_client.get_workspace_members(workspace_id).await
+  }
+
+  pub async fn get_workspace_member(&self, workspace_id: &str, user_id: i64) -> AFWorkspaceMember {
+    let params = QueryWorkspaceMember {
+      workspace_id: workspace_id.to_string(),
+      uid: user_id,
+    };
+    self.api_client.get_workspace_member(params).await.unwrap()
+  }
+
+  pub async fn try_get_workspace_member(
+    &self,
+    workspace_id: &str,
+    user_id: i64,
+  ) -> Result<AFWorkspaceMember, AppResponseError> {
+    let params = QueryWorkspaceMember {
+      workspace_id: workspace_id.to_string(),
+      uid: user_id,
+    };
+
+    self.api_client.get_workspace_member(params).await
   }
 
   pub async fn add_collab_member(
@@ -483,7 +506,7 @@ impl TestClient {
   ) -> String {
     let object_id = Uuid::new_v4().to_string();
     self
-      .create_and_edit_collab_with_data(object_id.clone(), workspace_id, collab_type, None)
+      .create_and_edit_collab_with_data(&object_id, workspace_id, collab_type, None)
       .await;
     object_id
   }
@@ -491,7 +514,7 @@ impl TestClient {
   #[allow(unused_variables)]
   pub async fn create_and_edit_collab_with_data(
     &mut self,
-    object_id: String,
+    object_id: &str,
     workspace_id: &str,
     collab_type: CollabType,
     encoded_collab_v1: Option<EncodedCollab>,
@@ -501,14 +524,14 @@ impl TestClient {
     let collab = match encoded_collab_v1 {
       None => Arc::new(MutexCollab::new(Collab::new_with_origin(
         origin.clone(),
-        &object_id,
+        object_id,
         vec![],
         false,
       ))),
       Some(data) => Arc::new(MutexCollab::new(
         Collab::new_with_source(
           origin.clone(),
-          &object_id,
+          object_id,
           DataSource::DocStateV1(data.doc_state.to_vec()),
           vec![],
           false,
@@ -532,7 +555,7 @@ impl TestClient {
     self
       .api_client
       .create_collab(CreateCollabParams {
-        object_id: object_id.clone(),
+        object_id: object_id.to_string(),
         encoded_collab_v1,
         collab_type: collab_type.clone(),
         workspace_id: workspace_id.to_string(),
@@ -542,10 +565,13 @@ impl TestClient {
 
     #[cfg(feature = "collab-sync")]
     {
-      let handler = self.ws_client.subscribe_collab(object_id.clone()).unwrap();
+      let handler = self
+        .ws_client
+        .subscribe_collab(object_id.to_string())
+        .unwrap();
       let (sink, stream) = (handler.sink(), handler.stream());
       let ws_connect_state = self.ws_client.subscribe_connect_state();
-      let object = SyncObject::new(&object_id, workspace_id, collab_type, &self.device_id);
+      let object = SyncObject::new(object_id, workspace_id, collab_type, &self.device_id);
       let sync_plugin = SyncPlugin::new(
         origin.clone(),
         object,
@@ -563,8 +589,8 @@ impl TestClient {
       origin,
       mutex_collab: collab,
     };
-    self.collabs.insert(object_id.clone(), test_collab);
-    self.wait_object_sync_complete(&object_id).await.unwrap();
+    self.collabs.insert(object_id.to_string(), test_collab);
+    self.wait_object_sync_complete(object_id).await.unwrap();
   }
 
   pub async fn open_workspace_collab(&mut self, workspace_id: &str) {

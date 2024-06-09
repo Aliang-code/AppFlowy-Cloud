@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix = "0.13.3"
-actix-web = { version = "4.5.1", default-features = false, features = ["openssl", "compress-brotli", "compress-gzip"] }
+actix.workspace = true
+actix-web.workspace = true
 actix-http = { workspace = true, default-features = false, features = ["openssl", "compress-brotli", "compress-gzip"] }
 actix-rt = "2.9.0"
 actix-web-actors = { version = "4.3" }
@@ -19,6 +19,7 @@ openssl = { version = "0.10.62", features = ["vendored"] }
 
 # serde
 serde_json.workspace = true
+serde_repr.workspace = true
 serde.workspace = true
 
 tokio = { workspace = true, features = [
@@ -34,8 +35,7 @@ futures-util = { workspace = true, features = ["std", "io"] }
 once_cell = "1.19.0"
 chrono = { version = "0.4.37", features = ["serde", "clock"], default-features = false }
 derive_more = { version = "0.99" }
-argon2 = { version = "0.5", features = ["std"] }
-secrecy = { version = "0.8", features = ["serde"] }
+secrecy.workspace = true
 rand = { version = "0.8", features = ["std_rng"] }
 anyhow = "1.0.79"
 thiserror = "1.0.56"
@@ -49,10 +49,9 @@ rcgen = { version = "0.10.0", features = ["pem", "x509-parser"] }
 mime = "0.3.17"
 rust-s3 = { version = "0.34.0-rc4", default-features = false, features = ["tokio-rustls-tls", "with-tokio", "no-verify-ssl"] }
 redis = { workspace = true, features = ["json", "tokio-comp", "connection-manager"] }
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["registry", "env-filter", "ansi", "json"] }
+tracing = { version = "0.1.40", features = ["log"] }
+tracing-subscriber = { version = "0.3.18", features = ["registry", "env-filter", "ansi", "json", "tracing-log"] }
 tracing-bunyan-formatter = "0.3.9"
-tracing-log = "0.1.4"
 sqlx = { workspace = true, default-features = false, features = ["runtime-tokio-rustls", "macros", "postgres", "uuid", "chrono", "migrate"] }
 async-trait.workspace = true
 prometheus-client.workspace = true
@@ -73,7 +72,9 @@ tonic-proto.workspace = true
 appflowy-collaborate = { path = "services/appflowy-collaborate" }
 
 # ai
-appflowy-ai-client = { path = "libs/appflowy-ai-client" }
+appflowy-ai-client = { workspace = true, features = ["dto", "client-api"] }
+openai_dive = { workspace = true, features = ["rustls-tls"] }
+pgvector = { workspace = true, features = ["sqlx"] }
 
 collab = { workspace = true }
 collab-document = { workspace = true }
@@ -88,17 +89,20 @@ database-entity.workspace = true
 gotrue = { path = "libs/gotrue" }
 gotrue-entity = { path = "libs/gotrue-entity" }
 infra = { path = "libs/infra" }
+authentication.workspace = true
 access-control.workspace = true
-app-error = { workspace = true, features = ["sqlx_error", "actix_web_error", "tokio_error"] }
+workspace-access.workspace = true
+app-error = { workspace = true, features = ["sqlx_error", "actix_web_error", "tokio_error", "appflowy_ai_error"] }
 shared-entity = { path = "libs/shared-entity", features = ["cloud"] }
 workspace-template = { workspace = true }
 collab-rt-entity.workspace = true
 collab-stream.workspace = true
-serde_repr = "0.1.18"
+
 tonic-build = "0.11.0"
 log = "0.4.20"
 lettre = { version = "0.11.7", features = ["tokio1", "tokio1-native-tls"] }
 handlebars = "5.1.2"
+pin-project = "1.1.5"
 
 
 [dev-dependencies]
@@ -137,8 +141,10 @@ members = [
     "libs/gotrue-entity",
     "admin_frontend",
     "libs/app-error",
+    "libs/workspace-access",
     "libs/workspace-template",
     "libs/encrypt",
+    "libs/authentication",
     "libs/access-control",
     "libs/collab-rt-protocol",
     "libs/collab-stream",
@@ -149,7 +155,7 @@ members = [
     "libs/appflowy-ai-client",
     # services
     "services/appflowy-history",
-    "services/realtime",
+    "services/appflowy-indexer",
     "services/appflowy-collaborate",
     # xtask
     "xtask",
@@ -163,17 +169,23 @@ database = { path = "libs/database" }
 database-entity = { path = "libs/database-entity" }
 shared-entity = { path = "libs/shared-entity" }
 gotrue-entity = { path = "libs/gotrue-entity" }
+authentication = { path = "libs/authentication" }
 access-control = { path = "libs/access-control" }
+workspace-access = { path = "libs/workspace-access" }
 app-error = { path = "libs/app-error" }
 async-trait = "0.1.77"
 prometheus-client = "0.22.0"
 collab-stream = { path = "libs/collab-stream" }
+secrecy = { version = "0.8", features = ["serde"] }
 serde_json = "1.0.111"
+serde_repr = "0.1.18"
 serde = { version = "1.0.195", features = ["derive"] }
 bytes = "1.5.0"
 workspace-template = { path = "libs/workspace-template" }
 uuid = { version = "1.6.1", features = ["v4"] }
 anyhow = "1.0.79"
+actix = "0.13.3"
+actix-web = { version = "4.5.1", default-features = false, features = ["openssl", "compress-brotli", "compress-gzip"] }
 actix-http = { version = "3.6.0", default-features = false }
 tokio = { version = "1.36.0", features = ["sync"] }
 tokio-stream = "0.1.14"
@@ -181,7 +193,7 @@ futures-util = "0.3.30"
 bincode = "1.3.3"
 client-websocket = { path = "libs/client-websocket" }
 infra = { path = "libs/infra" }
-tracing = { version = "0.1.40" }
+tracing = { version = "0.1", features = ["log"] }
 gotrue = { path = "libs/gotrue" }
 redis = "0.25.2"
 sqlx = { version = "0.7.4", default-features = false }
@@ -193,6 +205,9 @@ lazy_static = "1.4.0"
 tonic = "0.11"
 prost = "0.12"
 tonic-proto = { path = "libs/tonic-proto" }
+appflowy-ai-client = { path = "libs/appflowy-ai-client", default-features = false }
+openai_dive = { version = "0.4", features = ["rustls-tls"] }
+pgvector = { version = "0.3", features = ["sqlx"] }
 
 # collaboration
 yrs = "0.18.7"

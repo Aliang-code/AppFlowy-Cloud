@@ -1,32 +1,35 @@
-use crate::api::metrics::RequestMetrics;
-use crate::biz::casbin::{CollabAccessControlImpl, WorkspaceAccessControlImpl};
-use crate::biz::collab::metrics::CollabMetrics;
-use crate::biz::collab::storage::CollabAccessControlStorage;
-
-use crate::biz::pg_listener::PgListeners;
-use crate::config::config::Config;
-use crate::mailer::Mailer;
-use access_control::access::AccessControl;
-use access_control::metrics::AccessControlMetrics;
-use app_error::AppError;
-use appflowy_ai_client::client::AppFlowyAIClient;
-use appflowy_collaborate::collab::cache::CollabCache;
-use appflowy_collaborate::shared_state::RealtimeSharedState;
-use appflowy_collaborate::CollabRealtimeMetrics;
-use dashmap::DashMap;
-use database::file::bucket_s3_impl::S3BucketStorage;
-use database::user::{select_all_uid_uuid, select_uid_from_uuid};
-use gotrue::grant::{Grant, PasswordGrant};
-use secrecy::{ExposeSecret, Secret};
-use snowflake::Snowflake;
-use sqlx::PgPool;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+
+use appflowy_ai_client::client::AppFlowyAIClient;
+use dashmap::DashMap;
+use secrecy::{ExposeSecret, Secret};
+use sqlx::PgPool;
+use tokio::sync::{Mutex, RwLock};
 use tokio_stream::StreamExt;
 use uuid::Uuid;
 
-pub type RedisConnectionManager = redis::aio::ConnectionManager;
+use access_control::access::AccessControl;
+use access_control::metrics::AccessControlMetrics;
+use app_error::AppError;
+use appflowy_collaborate::collab::access_control::CollabAccessControlImpl;
+use appflowy_collaborate::collab::cache::CollabCache;
+use appflowy_collaborate::collab::storage::CollabAccessControlStorage;
+use appflowy_collaborate::metrics::CollabMetrics;
+use appflowy_collaborate::shared_state::RealtimeSharedState;
+use appflowy_collaborate::CollabRealtimeMetrics;
+use database::file::bucket_s3_impl::S3BucketStorage;
+use database::user::{select_all_uid_uuid, select_uid_from_uuid};
+use gotrue::grant::{Grant, PasswordGrant};
+use snowflake::Snowflake;
+use tonic_proto::history::history_client::HistoryClient;
+use workspace_access::WorkspaceAccessControlImpl;
 
+use crate::api::metrics::RequestMetrics;
+use crate::biz::pg_listener::PgListeners;
+use crate::config::config::Config;
+use crate::mailer::Mailer;
+
+pub type RedisConnectionManager = redis::aio::ConnectionManager;
 #[derive(Clone)]
 pub struct AppState {
   pub pg_pool: PgPool,
@@ -45,11 +48,10 @@ pub struct AppState {
   pub metrics: AppMetrics,
   pub gotrue_admin: GoTrueAdmin,
   pub mailer: Mailer,
+  pub openai: Option<openai_dive::v1::api::Client>,
   pub ai_client: AppFlowyAIClient,
   pub realtime_shared_state: RealtimeSharedState,
-  #[cfg(feature = "history")]
-  pub grpc_history_client:
-    tonic_proto::history::history_client::HistoryClient<tonic::transport::Channel>,
+  pub grpc_history_client: Arc<Mutex<HistoryClient<tonic::transport::Channel>>>,
 }
 
 impl AppState {

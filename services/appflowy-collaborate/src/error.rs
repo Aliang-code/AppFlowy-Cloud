@@ -1,4 +1,5 @@
 use collab::error::CollabError;
+use collab_stream::error::StreamError;
 use std::fmt::Display;
 
 #[derive(Debug, thiserror::Error)]
@@ -56,22 +57,33 @@ pub enum RealtimeError {
 
   #[error("Internal failure: {0}")]
   Internal(#[from] anyhow::Error),
+
+  #[error("Collab redis stream error: {0}")]
+  StreamError(#[from] StreamError),
 }
 
 #[derive(Debug)]
 pub enum CreateGroupFailedReason {
-  CollabWorkspaceIdNotMatch { expect: String, actual: String },
+  CollabWorkspaceIdNotMatch {
+    expect: String,
+    actual: String,
+    detail: String,
+  },
   CannotGetCollabData,
 }
 
 impl Display for CreateGroupFailedReason {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      CreateGroupFailedReason::CollabWorkspaceIdNotMatch { expect, actual } => {
+      CreateGroupFailedReason::CollabWorkspaceIdNotMatch {
+        expect,
+        actual,
+        detail,
+      } => {
         write!(
           f,
-          "Collab workspace id not match: expect {}, actual {}",
-          expect, actual
+          "Collab workspace id not match: expect {}, actual {}, detail: {}",
+          expect, actual, detail
         )
       },
       CreateGroupFailedReason::CannotGetCollabData => {

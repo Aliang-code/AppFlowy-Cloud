@@ -1,12 +1,17 @@
 use crate::dto::{
-  CompletionResponse, CompletionType, Document, SearchDocumentsRequest, SummarizeRowResponse,
-  TranslateRowResponse,
+  ChatAnswer, ChatQuestion, CompleteTextResponse, CompletionType, Document, MessageData,
+  RepeatedRelatedQuestion, SearchDocumentsRequest, SummarizeRowResponse, TranslateRowResponse,
 };
 use crate::error::AIError;
-use reqwest::{Method, RequestBuilder};
+
+use bytes::Bytes;
+use futures::{Stream, StreamExt};
+use reqwest;
+use reqwest::{Method, RequestBuilder, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::borrow::Cow;
+
 use tracing::{info, trace};
 
 #[derive(Clone, Debug)]
@@ -23,11 +28,19 @@ impl AppFlowyAIClient {
     Self { client, url }
   }
 
+  pub async fn health_check(&self) -> Result<(), AIError> {
+    let url = format!("{}/health", self.url);
+    let resp = self.http_client(Method::GET, &url)?.send().await?;
+    let text = resp.text().await?;
+    info!("health response: {:?}", text);
+    Ok(())
+  }
+
   pub async fn completion_text(
     &self,
     text: &str,
     completion_type: CompletionType,
-  ) -> Result<CompletionResponse, AIError> {
+  ) -> Result<CompleteTextResponse, AIError> {
     if text.is_empty() {
       return Err(AIError::InvalidRequest("Empty text".to_string()));
     }
@@ -43,7 +56,7 @@ impl AppFlowyAIClient {
       .json(&params)
       .send()
       .await?;
-    AIResponse::<CompletionResponse>::from_response(resp)
+    AIResponse::<CompleteTextResponse>::from_response(resp)
       .await?
       .into_data()
   }
@@ -91,7 +104,7 @@ impl AppFlowyAIClient {
     let status_code = resp.status();
     if !status_code.is_success() {
       let body = resp.text().await?;
-      return Err(anyhow::anyhow!("got error code: {}, body: {}", status_code, body).into());
+      return Err(anyhow::anyhow!("error: {}, {}", status_code, body).into());
     }
     Ok(())
   }
@@ -107,6 +120,56 @@ impl AppFlowyAIClient {
       .send()
       .await?;
     AIResponse::<Vec<Document>>::from_response(resp)
+      .await?
+      .into_data()
+  }
+
+  pub async fn send_question(&self, chat_id: &str, content: &str) -> Result<ChatAnswer, AIError> {
+    let json = ChatQuestion {
+      chat_id: chat_id.to_string(),
+      data: MessageData {
+        content: content.to_string(),
+      },
+    };
+    let url = format!("{}/chat/message", self.url);
+    let resp = self
+      .http_client(Method::POST, &url)?
+      .json(&json)
+      .send()
+      .await?;
+    AIResponse::<ChatAnswer>::from_response(resp)
+      .await?
+      .into_data()
+  }
+
+  pub async fn stream_question(
+    &self,
+    chat_id: &str,
+    content: &str,
+  ) -> Result<impl Stream<Item = Result<Bytes, AIError>>, AIError> {
+    let json = ChatQuestion {
+      chat_id: chat_id.to_string(),
+      data: MessageData {
+        content: content.to_string(),
+      },
+    };
+    let url = format!("{}/chat/message/stream", self.url);
+    let resp = self
+      .http_client(Method::POST, &url)?
+      .json(&json)
+      .send()
+      .await?;
+    AIResponse::<()>::stream_response(resp).await
+  }
+
+  pub async fn get_related_question(
+    &self,
+    chat_id: &str,
+    message_id: &i64,
+  ) -> Result<RepeatedRelatedQuestion, AIError> {
+    let url = format!("{}/chat/{chat_id}/{message_id}/related_question", self.url);
+    let resp = self.http_client(Method::GET, &url)?.send().await?;
+    AIResponse::<RepeatedRelatedQuestion>::from_response(resp)
       .await?
       .into_data()
   }
@@ -134,7 +197,7 @@ where
     let status_code = resp.status();
     if !status_code.is_success() {
       let body = resp.text().await?;
-      anyhow::bail!("got error code: {}, body: {}", status_code, body)
+      anyhow::bail!("error code: {}, {}", status_code, body)
     }
 
     let bytes = resp.bytes().await?;
@@ -147,5 +210,35 @@ where
       None => Err(AIError::InvalidRequest("Empty payload".to_string())),
       Some(data) => Ok(data),
     }
+  }
+
+  pub async fn stream_response(
+    resp: reqwest::Response,
+  ) -> Result<impl Stream<Item = Result<Bytes, AIError>>, AIError> {
+    let status_code = resp.status();
+    if !status_code.is_success() {
+      let body = resp.text().await?;
+      return Err(AIError::InvalidRequest(body));
+    }
+    let stream = resp
+      .bytes_stream()
+      .map(|item| item.map_err(|err| AIError::Internal(err.into())));
+    Ok(stream)
+  }
+}
+impl From<reqwest::Error> for AIError {
+  fn from(error: reqwest::Error) -> Self {
+    if error.is_timeout() {
+      return AIError::RequestTimeout(error.to_string());
+    }
+
+    if error.is_request() {
+      return if error.status() == Some(StatusCode::PAYLOAD_TOO_LARGE) {
+        AIError::PayloadTooLarge(error.to_string())
+      } else {
+        AIError::InvalidRequest(format!("{:?}", error))
+      };
+    }
+    AIError::Internal(error.into())
   }
 }

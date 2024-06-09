@@ -1,8 +1,8 @@
 use actix::{Actor, Context, Handler};
-use appflowy_cloud::biz::actix_ws::client::rt_client::{
+use appflowy_collaborate::actix_ws::client::rt_client::{
   HandlerResult, RealtimeClient, RealtimeServer,
 };
-use appflowy_cloud::biz::actix_ws::entities::{ClientMessage, Connect, Disconnect};
+use appflowy_collaborate::actix_ws::entities::{ClientMessage, Connect, Disconnect};
 use collab_rt_entity::user::RealtimeUser;
 use collab_rt_entity::RealtimeMessage;
 use semver::Version;
@@ -14,7 +14,7 @@ use tokio::time::sleep;
 async fn test_handle_message() {
   let device_id = "device_id".to_string();
   let session_id = "session_id".to_string();
-  let user = RealtimeUser::new(1, device_id, session_id, 2);
+  let user = RealtimeUser::new(1, device_id, session_id, 2, "0.5.8".to_string());
   let server = MockRealtimeServer::new(10).start();
   let client_version = Version::new(0, 5, 0);
 
@@ -40,7 +40,7 @@ async fn test_handle_message() {
 async fn server_mailbox_full_test() {
   let device_id = "device_id".to_string();
   let session_id = "session_id".to_string();
-  let user = RealtimeUser::new(1, device_id, session_id, 2);
+  let user = RealtimeUser::new(1, device_id, session_id, 2, "0.5.8".to_string());
   let server = MockRealtimeServer::new(5).start();
   let client_version = Version::new(0, 5, 0);
 
@@ -82,7 +82,7 @@ async fn server_mailbox_full_test() {
 async fn client_rate_limit_hit_test() {
   let device_id = "device_id".to_string();
   let session_id = "session_id".to_string();
-  let user = RealtimeUser::new(1, device_id, session_id, 2);
+  let user = RealtimeUser::new(1, device_id, session_id, 2, "0.5.8".to_string());
   let server = MockRealtimeServer::new(5).start();
   let client_version = Version::new(0, 5, 0);
 

@@ -8,16 +8,9 @@ use crate::mailer::Mailer;
 use access_control::access::{enable_access_control, AccessControl};
 
 use crate::api::chat::chat_scope;
-use crate::biz::actix_ws::server::RealtimeServerActor;
-use crate::biz::casbin::{
-  CollabAccessControlImpl, RealtimeCollabAccessControlImpl, WorkspaceAccessControlImpl,
-};
-use crate::biz::collab::access_control::{
-  CollabMiddlewareAccessControl, CollabStorageAccessControlImpl,
-};
-use crate::biz::collab::storage::CollabStorageImpl;
+use crate::api::history::history_scope;
+use crate::biz::collab::access_control::CollabMiddlewareAccessControl;
 use crate::biz::pg_listener::PgListeners;
-use crate::biz::snapshot::SnapshotControl;
 use crate::biz::workspace::access_control::WorkspaceMiddlewareAccessControl;
 use crate::config::config::{Config, DatabaseSetting, GoTrueSetting, S3Setting};
 use crate::middleware::access_control_mw::MiddlewareAccessControlTransform;
@@ -33,9 +26,15 @@ use actix_web::cookie::Key;
 use actix_web::{dev::Server, web, web::Data, App, HttpServer};
 use anyhow::{Context, Error};
 use appflowy_ai_client::client::AppFlowyAIClient;
+use appflowy_collaborate::actix_ws::server::RealtimeServerActor;
+use appflowy_collaborate::collab::access_control::{
+  CollabAccessControlImpl, CollabStorageAccessControlImpl, RealtimeCollabAccessControlImpl,
+};
 use appflowy_collaborate::collab::cache::CollabCache;
+use appflowy_collaborate::collab::storage::CollabStorageImpl;
 use appflowy_collaborate::command::{CLCommandReceiver, CLCommandSender};
 use appflowy_collaborate::shared_state::RealtimeSharedState;
+use appflowy_collaborate::snapshot::SnapshotControl;
 use appflowy_collaborate::CollaborationServer;
 use database::file::bucket_s3_impl::S3BucketStorage;
 use openssl::ssl::{SslAcceptor, SslAcceptorBuilder, SslFiletype, SslMethod};
@@ -46,8 +45,13 @@ use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
+use tonic_proto::history::history_client::HistoryClient;
+
+use crate::api::ai::ai_completion_scope;
+use crate::api::search::search_scope;
 use tracing::{info, warn};
+use workspace_access::WorkspaceAccessControlImpl;
 
 pub struct Application {
   port: u16,
@@ -63,6 +67,7 @@ impl Application {
     let address = format!("{}:{}", config.application.host, config.application.port);
     let listener = TcpListener::bind(&address)?;
     let port = listener.local_addr().unwrap().port();
+    tracing::info!("Server started at {}", listener.local_addr().unwrap());
     let actix_server = run_actix_server(listener, state, config, rt_cmd_recv).await?;
 
     Ok(Self { port, actix_server })
@@ -115,7 +120,9 @@ pub async fn run_actix_server(
     RealtimeCollabAccessControlImpl::new(state.access_control.clone()),
     state.metrics.realtime_metrics.clone(),
     rt_cmd_recv,
+    state.redis_connection_manager.clone(),
   )
+  .await
   .unwrap();
 
   let realtime_server_actor = Supervisor::start(|_| RealtimeServerActor(realtime_server));
@@ -138,12 +145,16 @@ pub async fn run_actix_server(
       .service(ws_scope())
       .service(file_storage_scope())
       .service(chat_scope())
+      .service(ai_completion_scope())
+      .service(history_scope())
       .service(metrics_scope())
+      .service(search_scope())
       .app_data(Data::new(state.metrics.registry.clone()))
       .app_data(Data::new(state.metrics.request_metrics.clone()))
       .app_data(Data::new(state.metrics.realtime_metrics.clone()))
       .app_data(Data::new(state.metrics.access_control_metrics.clone()))
       .app_data(Data::new(realtime_server_actor.clone()))
+      .app_data(Data::new(state.config.gotrue.jwt_secret.clone()))
       .app_data(Data::new(state.clone()))
       .app_data(Data::new(storage.clone()))
   });
@@ -190,7 +201,7 @@ pub async fn init_state(config: &Config, rt_cmd_tx: CLCommandSender) -> Result<A
   info!("Connecting to Redis...");
   let redis_conn_manager = get_redis_client(config.redis_uri.expose_secret()).await?;
 
-  info!("Connecting to AppFlowy AI: {}", config.appflowy_ai.url());
+  info!("Setup AppFlowy AI: {}", config.appflowy_ai.url());
   let appflowy_ai_client = AppFlowyAIClient::new(&config.appflowy_ai.url());
 
   // Pg listeners
@@ -238,15 +249,21 @@ pub async fn init_state(config: &Config, rt_cmd_tx: CLCommandSender) -> Result<A
     metrics.collab_metrics.clone(),
   ));
 
-  #[cfg(feature = "history")]
-  let grpc_history_client =
-    tonic_proto::history::history_client::HistoryClient::connect(config.grpc_history.addrs.clone())
-      .await?;
+  info!(
+    "Connecting to history server: {}",
+    config.grpc_history.addrs
+  );
+  let channel = tonic::transport::Channel::from_shared(config.grpc_history.addrs.clone())?
+    .keep_alive_timeout(Duration::from_secs(20))
+    .keep_alive_while_idle(true)
+    .connect_lazy();
 
+  let grpc_history_client = Arc::new(Mutex::new(HistoryClient::new(channel)));
   let mailer = Mailer::new(
     config.mailer.smtp_username.clone(),
     config.mailer.smtp_password.expose_secret().clone(),
     &config.mailer.smtp_host,
+    config.mailer.smtp_port,
   )
   .await?;
   let realtime_shared_state = RealtimeSharedState::new(redis_conn_manager.clone());
@@ -254,9 +271,20 @@ pub async fn init_state(config: &Config, rt_cmd_tx: CLCommandSender) -> Result<A
     warn!("Failed to remove all connected users: {:?}", err);
   }
 
+  let openai = match &config.openai_api_key {
+    Some(key) if !key.expose_secret().is_empty() => Some(openai_dive::v1::api::Client::new(
+      key.expose_secret().clone(),
+    )),
+    _ => {
+      warn!("OpenAI API key not configured. Set APPFLOWY_OPENAI_API_KEY environment variable to enable OpenAI API.");
+      None
+    },
+  };
+
   info!("Application state initialized");
   Ok(AppState {
     pg_pool,
+    openai,
     config: Arc::new(config.clone()),
     user_cache,
     id_gen: Arc::new(RwLock::new(Snowflake::new(1))),
@@ -273,7 +301,6 @@ pub async fn init_state(config: &Config, rt_cmd_tx: CLCommandSender) -> Result<A
     gotrue_admin,
     mailer,
     ai_client: appflowy_ai_client,
-    #[cfg(feature = "history")]
     grpc_history_client,
     realtime_shared_state,
   })
@@ -400,7 +427,7 @@ async fn get_connection_pool(setting: &DatabaseSetting) -> Result<PgPool, Error>
     .acquire_timeout(Duration::from_secs(10))
     .max_lifetime(Duration::from_secs(30 * 60))
     .idle_timeout(Duration::from_secs(30))
-    .connect_with(setting.with_db())
+    .connect_with(setting.pg_connect_options())
     .await
     .map_err(|e| anyhow::anyhow!("Failed to connect to postgres database: {}", e))
 }

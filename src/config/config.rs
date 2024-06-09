@@ -14,6 +14,7 @@ pub struct Config {
   pub application: ApplicationSetting,
   pub websocket: WebsocketSetting,
   pub redis_uri: Secret<String>,
+  pub openai_api_key: Option<Secret<String>>,
   pub s3: S3Setting,
   pub appflowy_ai: AppFlowyAISetting,
   pub grpc_history: GrpcHistorySetting,
@@ -23,6 +24,7 @@ pub struct Config {
 #[derive(serde::Deserialize, Clone, Debug)]
 pub struct MailerSetting {
   pub smtp_host: String,
+  pub smtp_port: u16,
   pub smtp_username: String,
   pub smtp_password: Secret<String>,
 }
@@ -92,21 +94,20 @@ pub struct DatabaseSetting {
   /// connections are reserved for system applications.
   /// When we exceed the limit of the database connection, then it shows an error message.
   pub max_connections: u32,
-  pub database_name: String,
 }
 
 impl Display for DatabaseSetting {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(
-        f,
-        "DatabaseSetting {{ pg_conn_opts: {:?}, require_ssl: {}, max_connections: {}, database_name: {} }}",
-        self.pg_conn_opts, self.require_ssl, self.max_connections, self.database_name
-        )
+      f,
+      "DatabaseSetting {{ pg_conn_opts: {:?}, require_ssl: {}, max_connections: {} }}",
+      self.pg_conn_opts, self.require_ssl, self.max_connections
+    )
   }
 }
 
 impl DatabaseSetting {
-  pub fn without_db(&self) -> PgConnectOptions {
+  pub fn pg_connect_options(&self) -> PgConnectOptions {
     let ssl_mode = if self.require_ssl {
       PgSslMode::Require
     } else {
@@ -114,10 +115,6 @@ impl DatabaseSetting {
     };
     let options = self.pg_conn_opts.clone();
     options.ssl_mode(ssl_mode)
-  }
-
-  pub fn with_db(&self) -> PgConnectOptions {
-    self.without_db().database(&self.database_name)
   }
 }
 
@@ -143,7 +140,6 @@ pub fn get_configuration() -> Result<Config, anyhow::Error> {
       max_connections: get_env_var("APPFLOWY_DATABASE_MAX_CONNECTIONS", "40")
         .parse()
         .context("fail to get APPFLOWY_DATABASE_MAX_CONNECTIONS")?,
-      database_name: get_env_var("APPFLOWY_DATABASE_NAME", "postgres"),
     },
     gotrue: GoTrueSetting {
       base_url: get_env_var("APPFLOWY_GOTRUE_BASE_URL", "http://localhost:9999"),
@@ -165,6 +161,9 @@ pub fn get_configuration() -> Result<Config, anyhow::Error> {
       client_timeout: get_env_var("APPFLOWY_WEBSOCKET_CLIENT_TIMEOUT", "60").parse()?,
     },
     redis_uri: get_env_var("APPFLOWY_REDIS_URI", "redis://localhost:6379").into(),
+    openai_api_key: std::env::var("APPFLOWY_OPENAI_API_KEY")
+      .map(Secret::from)
+      .ok(),
     s3: S3Setting {
       use_minio: get_env_var("APPFLOWY_S3_USE_MINIO", "true")
         .parse()
@@ -184,6 +183,7 @@ pub fn get_configuration() -> Result<Config, anyhow::Error> {
     },
     mailer: MailerSetting {
       smtp_host: get_env_var("APPFLOWY_MAILER_SMTP_HOST", "smtp.gmail.com"),
+      smtp_port: get_env_var("APPFLOWY_MAILER_SMTP_PORT", "465").parse()?,
       smtp_username: get_env_var("APPFLOWY_MAILER_SMTP_USERNAME", "sender@example.com"),
       smtp_password: get_env_var("APPFLOWY_MAILER_SMTP_PASSWORD", "password").into(),
     },

@@ -190,6 +190,15 @@ pub struct QueryCollab {
   pub object_id: String,
   pub collab_type: CollabType,
 }
+impl QueryCollab {
+  pub fn new<T: ToString>(object_id: T, collab_type: CollabType) -> Self {
+    let object_id = object_id.to_string();
+    Self {
+      object_id,
+      collab_type,
+    }
+  }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchQueryCollabParams(pub Vec<QueryCollab>);
@@ -275,6 +284,14 @@ pub struct QueryCollabMembers {
   pub workspace_id: String,
   #[validate(custom = "validate_not_empty_str")]
   pub object_id: String,
+}
+
+#[derive(Debug, Clone, Validate, Serialize, Deserialize)]
+pub struct QueryWorkspaceMember {
+  #[validate(custom = "validate_not_empty_str")]
+  pub workspace_id: String,
+
+  pub uid: i64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -481,6 +498,12 @@ pub struct AFWorkspace {
 #[derive(Serialize, Deserialize)]
 pub struct AFWorkspaces(pub Vec<AFWorkspace>);
 
+#[derive(Default, Serialize, Deserialize)]
+pub struct AFWorkspaceSettings {
+  #[serde(default)]
+  pub disable_indexing: bool,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct AFUserWorkspaceInfo {
   pub user_profile: AFUserProfile,
@@ -527,4 +550,203 @@ impl From<i16> for AFWorkspaceInvitationStatus {
       },
     }
   }
+}
+
+#[derive(Debug, Clone, Validate, Serialize, Deserialize)]
+pub struct CreateChatParams {
+  #[validate(custom = "validate_not_empty_str")]
+  pub chat_id: String,
+  pub name: String,
+  pub rag_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Validate, Serialize, Deserialize)]
+pub struct UpdateChatParams {
+  #[validate(custom = "validate_not_empty_str")]
+  pub chat_id: String,
+
+  #[validate(custom = "validate_not_empty_str")]
+  pub name: Option<String>,
+
+  pub rag_ids: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Validate, Serialize, Deserialize)]
+pub struct CreateChatMessageParams {
+  #[validate(custom = "validate_not_empty_str")]
+  pub content: String,
+  pub message_type: ChatMessageType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateChatMessageMetaParams {
+  pub message_id: i64,
+  pub meta_data: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateChatMessageContentParams {
+  pub chat_id: String,
+  pub message_id: i64,
+  pub content: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize_repr, Deserialize_repr)]
+#[repr(u8)]
+pub enum ChatMessageType {
+  System = 0,
+  #[default]
+  User = 1,
+}
+
+impl CreateChatMessageParams {
+  pub fn new_system<T: ToString>(content: T) -> Self {
+    Self {
+      content: content.to_string(),
+      message_type: ChatMessageType::System,
+    }
+  }
+
+  pub fn new_user<T: ToString>(content: T) -> Self {
+    Self {
+      content: content.to_string(),
+      message_type: ChatMessageType::User,
+    }
+  }
+}
+#[derive(Debug, Clone, Validate, Serialize, Deserialize)]
+pub struct GetChatMessageParams {
+  pub cursor: MessageCursor,
+  pub limit: u64,
+}
+
+impl GetChatMessageParams {
+  pub fn offset(offset: u64, limit: u64) -> Self {
+    Self {
+      cursor: MessageCursor::Offset(offset),
+      limit,
+    }
+  }
+
+  pub fn after_message_id(after_message_id: i64, limit: u64) -> Self {
+    Self {
+      cursor: MessageCursor::AfterMessageId(after_message_id),
+      limit,
+    }
+  }
+  pub fn before_message_id(before_message_id: i64, limit: u64) -> Self {
+    Self {
+      cursor: MessageCursor::BeforeMessageId(before_message_id),
+      limit,
+    }
+  }
+
+  pub fn next_back(limit: u64) -> Self {
+    Self {
+      cursor: MessageCursor::NextBack,
+      limit,
+    }
+  }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MessageCursor {
+  Offset(u64),
+  AfterMessageId(i64),
+  BeforeMessageId(i64),
+  NextBack,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+  pub author: ChatAuthor,
+  pub message_id: i64,
+  pub content: String,
+  pub created_at: DateTime<Utc>,
+  pub meta_data: serde_json::Value,
+  pub reply_message_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QAChatMessage {
+  pub question: ChatMessage,
+  pub answer: Option<ChatMessage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepeatedChatMessage {
+  pub messages: Vec<ChatMessage>,
+  pub has_more: bool,
+  pub total: i64,
+}
+
+#[derive(Debug, Default, Clone, Serialize_repr, Deserialize_repr)]
+#[repr(u8)]
+pub enum ChatAuthorType {
+  Unknown = 0,
+  Human = 1,
+  #[default]
+  System = 2,
+  AI = 3,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatAuthor {
+  pub author_id: i64,
+  #[serde(default)]
+  pub author_type: ChatAuthorType,
+  #[serde(default)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub meta: Option<serde_json::Value>,
+}
+
+impl ChatAuthor {
+  pub fn new(author_id: i64, author_type: ChatAuthorType) -> Self {
+    Self {
+      author_id,
+      author_type,
+      meta: None,
+    }
+  }
+
+  pub fn ai() -> Self {
+    Self {
+      author_id: 0,
+      author_type: ChatAuthorType::AI,
+      meta: None,
+    }
+  }
+}
+
+#[derive(Debug, Clone)]
+pub struct AFCollabEmbeddingParams {
+  pub fragment_id: String,
+  pub object_id: String,
+  pub collab_type: CollabType,
+  pub content_type: EmbeddingContentType,
+  pub content: String,
+  pub embedding: Option<Vec<f32>>,
+}
+
+/// Type of content stored by the embedding.
+/// Currently only plain text of the document is supported.
+/// In the future, we might support other kinds like i.e. PDF, images or image-extracted text.
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, Serialize_repr, Deserialize_repr, Eq, PartialEq)]
+pub enum EmbeddingContentType {
+  /// The plain text representation of the document.
+  PlainText = 0,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateChatMessageResponse {
+  pub answer: Option<ChatMessage>,
+}
+
+#[derive(Debug, Clone, Validate, Serialize, Deserialize)]
+pub struct CreateAnswerMessageParams {
+  #[validate(custom = "validate_not_empty_str")]
+  pub content: String,
+
+  pub question_message_id: i64,
 }

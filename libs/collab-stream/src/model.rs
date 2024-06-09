@@ -1,5 +1,6 @@
 use collab_entity::CollabType;
 use std::collections::BTreeMap;
+use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 use std::str::FromStr;
 
@@ -23,9 +24,9 @@ pub struct MessageId {
   pub sequence_number: u16,
 }
 
-impl ToString for MessageId {
-  fn to_string(&self) -> String {
-    format!("{}-{}", self.timestamp_ms, self.sequence_number)
+impl Display for MessageId {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}-{}", self.timestamp_ms, self.sequence_number)
   }
 }
 
@@ -233,9 +234,9 @@ impl FromRedisValue for RedisString {
   }
 }
 
-impl ToString for RedisString {
-  fn to_string(&self) -> String {
-    self.0.clone()
+impl Display for RedisString {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", self.0.clone())
   }
 }
 
@@ -257,6 +258,25 @@ pub enum CollabControlEvent {
   Close {
     object_id: String,
   },
+}
+
+impl Display for CollabControlEvent {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    match self {
+      CollabControlEvent::Open {
+        workspace_id: _,
+        object_id,
+        collab_type,
+        doc_state: _,
+      } => f.write_fmt(format_args!(
+        "Open collab: object_id:{}|collab_type:{:?}",
+        object_id, collab_type,
+      )),
+      CollabControlEvent::Close { object_id } => {
+        f.write_fmt(format_args!("Close collab: object_id:{}", object_id))
+      },
+    }
+  }
 }
 
 impl CollabControlEvent {

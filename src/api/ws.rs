@@ -1,24 +1,28 @@
-use crate::biz::actix_ws::client::rt_client::RealtimeClient;
-use crate::biz::actix_ws::server::RealtimeServerActor;
-use crate::biz::casbin::RealtimeCollabAccessControlImpl;
-use crate::biz::collab::storage::CollabAccessControlStorage;
-use crate::biz::user::auth::jwt::{authorization_from_token, UserUuid};
-use crate::state::AppState;
+use std::collections::HashMap;
+use std::time::Duration;
+
 use actix::Addr;
 use actix_http::header::AUTHORIZATION;
 use actix_web::web::{Data, Path, Payload};
 use actix_web::{get, web, HttpRequest, HttpResponse, Result, Scope};
 use actix_web_actors::ws;
-use app_error::AppError;
-use collab_rt_entity::user::{AFUserChange, RealtimeUser, UserMessage};
-use collab_rt_entity::RealtimeMessage;
+use secrecy::Secret;
 use semver::Version;
-use shared_entity::response::AppResponseError;
-use std::collections::HashMap;
-use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, instrument, trace};
+
+use app_error::AppError;
+use appflowy_collaborate::actix_ws::client::rt_client::RealtimeClient;
+use appflowy_collaborate::actix_ws::server::RealtimeServerActor;
+use appflowy_collaborate::collab::access_control::RealtimeCollabAccessControlImpl;
+use appflowy_collaborate::collab::storage::CollabAccessControlStorage;
+use authentication::jwt::{authorization_from_token, UserUuid};
+use collab_rt_entity::user::{AFUserChange, RealtimeUser, UserMessage};
+use collab_rt_entity::RealtimeMessage;
+use shared_entity::response::AppResponseError;
+
+use crate::state::AppState;
 
 pub fn ws_scope() -> Scope {
   web::scope("/ws")
@@ -38,6 +42,7 @@ pub async fn establish_ws_connection(
   payload: Payload,
   path: Path<(String, String)>,
   state: Data<AppState>,
+  jwt_secret: Data<Secret<String>>,
   server: Data<RealtimeServerAddr>,
 ) -> Result<HttpResponse> {
   let (access_token, device_id) = path.into_inner();
@@ -47,6 +52,7 @@ pub async fn establish_ws_connection(
     &request,
     payload,
     &state,
+    &jwt_secret,
     server,
     access_token,
     device_id,
@@ -61,6 +67,7 @@ pub async fn establish_ws_connection_v1(
   request: HttpRequest,
   payload: Payload,
   state: Data<AppState>,
+  jwt_secret: Data<Secret<String>>,
   server: Data<RealtimeServerAddr>,
   web::Query(query_params): web::Query<HashMap<String, String>>,
 ) -> Result<HttpResponse> {
@@ -83,6 +90,7 @@ pub async fn establish_ws_connection_v1(
     &request,
     payload,
     &state,
+    &jwt_secret,
     server,
     access_token,
     device_id,
@@ -98,13 +106,14 @@ async fn start_connect(
   request: &HttpRequest,
   payload: Payload,
   state: &Data<AppState>,
+  jwt_secret: &Data<Secret<String>>,
   server: Data<RealtimeServerAddr>,
   access_token: String,
   device_id: String,
-  client_version: Version,
+  client_app_version: Version,
   connect_at: i64,
 ) -> Result<HttpResponse> {
-  let auth = authorization_from_token(access_token.as_str(), state)?;
+  let auth = authorization_from_token(access_token.as_str(), jwt_secret)?;
   let user_uuid = UserUuid::from_auth(auth)?;
   let result = state.user_cache.get_user_uid(&user_uuid).await;
 
@@ -112,18 +121,24 @@ async fn start_connect(
     Ok(uid) => {
       debug!(
         "🚀new websocket connect: uid={}, device_id={}, client_version:{}",
-        uid, device_id, client_version
+        uid, device_id, client_app_version
       );
 
       let session_id = uuid::Uuid::new_v4().to_string();
-      let realtime_user = RealtimeUser::new(uid, device_id, session_id, connect_at);
+      let realtime_user = RealtimeUser::new(
+        uid,
+        device_id,
+        session_id,
+        connect_at,
+        client_app_version.to_string(),
+      );
       let (tx, external_source) = mpsc::channel(100);
       let client = RealtimeClient::new(
         realtime_user,
         server.get_ref().clone(),
         Duration::from_secs(state.config.websocket.heartbeat_interval as u64),
         Duration::from_secs(state.config.websocket.client_timeout as u64),
-        client_version,
+        client_app_version,
         external_source,
         10,
       );
